@@ -100,7 +100,6 @@ def main():
     print('batchsize:',batch_size)
     print('lenet adapt perfect scale version')
     print('random-seed = %d %d %d'%(seed1,seed2,seed3))
-    # print('rand seed: %d'%seed)
     print('='*15+'settings'+'='*15+'\n')
     
     torch.manual_seed(seed1)
@@ -124,9 +123,6 @@ def main():
     cudnn.benchmark = False
     cudnn.deterministic = True
 
-    # for name, param in model.named_parameters():
-	#     print(name, '      ', param.size())
-    # time.sleep(20)
 
     # optionally resume from a checkpoint
     if args.resume:
@@ -145,13 +141,14 @@ def main():
     
 
     '''STEP 1: LOADING DATASET'''
-    train_data = dsets.MNIST(root='../../data', train=True, transform=transforms.ToTensor(), download=True)
-    val_data = dsets.MNIST(root='../../data', train=False, transform=transforms.ToTensor())
+    train_data = dsets.MNIST(root='./data', train=True, transform=transforms.ToTensor(), download=True)
+    val_data = dsets.MNIST(root='./data', train=False, transform=transforms.ToTensor())
 
     train_loader = torch.utils.data.DataLoader(dataset=train_data, batch_size=args.batch_size, shuffle=True)
     val_loader = torch.utils.data.DataLoader(dataset=val_data, batch_size=int(args.batch_size), shuffle=False)
     print('read dataset succeed')
     if args.evaluate:
+        model = model.module
         validate(val_loader, model, criterion, criterion_en, time_steps=100, leak=1)
         return
 
@@ -193,26 +190,13 @@ def main():
             ep[k], args.epochs, lRate[k], top1=tp1[k], top5=tp5[k]))
     print('best:',best_prec1)
 
-
+#  calculate the scale for a layer
 def grad_cal(scale, IF_in):
-    # sign = torch.sign(IF_in)
-    # IF_in = IF_in + (IF_in.abs() < 1e-3).type(torch.cuda.FloatTensor)
-    # Total_output = torch.mul(Total_output, (Total_output > 1e-3).type(torch.cuda.FloatTensor))
-    # out = torch.div(Total_output, IF_in)
-    # out = 1.1*torch.ones(Total_output.size(),device = Total_output.device)
-    # out[sign<=0] = 0
-    # print_view(out)
-    # time.sleep(5)
     out = scale * IF_in.gt(0).type(torch.cuda.FloatTensor)
     return out
 
 def ave(output, input):
     # c = input >= output
-    if input.sum() < 1e-3:
-        return 1
-    return output.sum()/input.sum()
-
-def ave_p(output, input):
     if input.sum() < 1e-3:
         return 1
     return output.sum()/input.sum()
@@ -223,7 +207,6 @@ def train(train_loader, model, criterion, criterion_en, optimizer, epoch, time_s
     losses = AverageMeter()
     top1 = AverageMeter()
     top5 = AverageMeter()
-
     top1_tr = AverageMeter()
     top5_tr = AverageMeter()
     losses_en = AverageMeter()
@@ -239,21 +222,8 @@ def train(train_loader, model, criterion, criterion_en, optimizer, epoch, time_s
         inputdata, target = inputdata.to(device), target.to(device)
         labels = target.clone()
 
-        optimizer.zero_grad()  # Clear gradients w.r.t. parameters
-
-        # output, Total_1_output, LF_1_output, Total_2_output, LF_2_output, Total_f0_output, LF_f0_output, out1_temp, out2_temp, outf0_temp = model(inputdata, steps=time_steps, l=leak)
+        optimizer.zero_grad()
         output = model(inputdata, steps=time_steps, l=leak)
-
-        # compute gradient
-        # NG_C1 = grad_cal(leak, LF_1_output, Total_1_output)
-        # NG_C2 = grad_cal(leak, LF_2_output, Total_2_output)
-        # NG_F0 = grad_cal(leak, LF_f0_output, Total_f0_output)
-
-        # apply gradient
-        # for z in range(time_steps):
-        #     out1_temp[z].register_hook(lambda grad: torch.mul(grad, NG_C1))
-        #     out2_temp[z].register_hook(lambda grad: torch.mul(grad, NG_C2))
-        #     outf0_temp[z].register_hook(lambda grad: torch.mul(grad, NG_F0))
 
         targetN = output.data.clone().zero_().to(device)
         targetN.scatter_(1, target.unsqueeze(1), 1)
@@ -273,44 +243,8 @@ def train(train_loader, model, criterion, criterion_en, optimizer, epoch, time_s
         top1_tr.update(prec1_tr.item(), inputdata.size(0))
         top5_tr.update(prec5_tr.item(), inputdata.size(0))
 
-        # compute gradient and do SGD step
-        # Total_f0_output.register_hook(lambda grad: grad*100) # 使用grad是用来改变计算图使用的梯度值的，但是这里是人工算而不是自动算，所以没有使用那个东西  
         loss.backward(retain_graph=False)
-        # print(Total_f0_output)
-        # Total_f0_output.register_hook(lambda grad: grad) # 使用grad是用来改变计算图使用的梯度值的，但是这里是人工算而不是自动算，所以没有使用那个东西  
-        # scale = grad_cal(Total_f0_output, IF_in_f0)
-        # print(scale)
-        # fc0_in.backward(torch.mul(Total_f0_output.grad, scale))
-        # scale = grad_cal(Total_p2_output,IF_in_p2)
-        # pool2_in.backward(torch.mul(Total_p2_output.grad, scale))
-        # scale = grad_cal(Total_2_output,IF_in_c2)
-        # cnn2_in.backward(torch.mul(Total_2_output.grad, scale))
-        # scale = grad_cal(Total_p1_output,IF_in_p1)
-        # pool1_in.backward(torch.mul(Total_p1_output.grad, scale))
-        # scale = grad_cal(Total_1_output,IF_in_c1)
-        # cnn1_in.backward(torch.mul(Total_1_output.grad, scale))
-
-        # fc0_in.backward(Total_f0_output.grad)
-        # pool2_in.backward(Total_p2_output.grad)
-        # cnn2_in.backward(Total_2_output.grad)
-        # pool1_in.backward(Total_p1_output.grad)
-        # cnn1_in.backward(Total_1_output.grad)
-
-
-        # read the gradient
-
-        # print(Total_p2_output.grad)
-        # print(Total_p1_output.grad)
-        # print(Total_2_output.grad)
-        # print(Total_1_output.grad)
-        # time.sleep(20)
-        
-        
         optimizer.step()
-
-        # out1_temp, NG_C1 = None, None
-        # out2_temp, NG_C2 = None, None
-        # outf0_temp, NG_F0 = None, None
 
         # measure elapsed time
         batch_time.update(time.time() - end)
@@ -446,58 +380,30 @@ class SpikingNN(torch.autograd.Function):
 
 
 def LIF_sNeuron(membrane_potential, threshold, l, IF_in):
-    # check exceed membrane potential and reset
-    # membrane_potential  = nn.functional.threshold(membrane_potential,0,0)
     ex_membrane = nn.functional.threshold(membrane_potential, threshold, 0)
     IF_in = IF_in + ex_membrane
     membrane_potential = membrane_potential - ex_membrane
-    # generate spike
     out = SpikingNN()(ex_membrane)
-    # decay
-    # membrane_potential = l * membrane_potential.detach() + membrane_potential - membrane_potential.detach()
-    # out = out.detach() + torch.div(out, threshold) - torch.div(out, threshold).detach()
 
     return membrane_potential, out, IF_in
 
 def LIF_sNeuron1(membrane_potential, threshold, l, i):
-    # check exceed membrane potential and reset
-    # membrane_potential  = nn.functional.threshold(membrane_potential,0,0)
     ex_membrane = nn.functional.threshold(membrane_potential, threshold, 0)
-    # IF_in = IF_in + ex_membrane
     membrane_potential = membrane_potential - ex_membrane
-    # generate spike
     out = SpikingNN()(ex_membrane)
-    # decay
-    # membrane_potential = l * membrane_potential.detach() + membrane_potential - membrane_potential.detach()
-    # out = out.detach() + torch.div(out, threshold) - torch.div(out, threshold).detach()
-
     return membrane_potential, out
-# def LF_Unit(l, LF_output, Total_output, out, out_temp, i):
-#     LF_output = l * LF_output + out
-#     Total_output = Total_output+ out
-#     out_temp.append(out)
-
-#     return LF_output, Total_output, out_temp[i]
-
 
 def Pooling_sNeuron(membrane_potential, threshold, i, IF_in):
-    # check exceed membrane potential and reset
-    # membrane_potential  = nn.functional.threshold(membrane_potential,0,0)
     ex_membrane = nn.functional.threshold(membrane_potential, threshold, 0)
     IF_in = IF_in + ex_membrane
     membrane_potential = membrane_potential - ex_membrane # hard reset
-    # generate spike
     out = SpikingNN()(ex_membrane)
 
     return membrane_potential, out, IF_in
 
 def Pooling_sNeuron1(membrane_potential, threshold, i):
-    # check exceed membrane potential and reset
-    # membrane_potential  = nn.functional.threshold(membrane_potential,0,0)
     ex_membrane = nn.functional.threshold(membrane_potential, threshold, 0)
-    # IF_in = IF_in + ex_membrane
-    membrane_potential = membrane_potential - ex_membrane # hard reset
-    # generate spike
+    membrane_potential = membrane_potential - ex_membrane 
     out = SpikingNN()(ex_membrane)
 
     return membrane_potential, out
@@ -519,8 +425,6 @@ class CNNModel(nn.Module):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.in_channels
                 variance1 = math.sqrt(2. / n)
                 m.weight.data.normal_(0, variance1)
-                # m.weight.data.normal_(0.9, 0.2)
-                # define threshold
                 m.threshold = 1
 
             elif isinstance(m, nn.Linear):
@@ -528,14 +432,9 @@ class CNNModel(nn.Module):
                 fan_in = size[1]
                 variance2 = math.sqrt(2.0 / fan_in)
                 m.weight.data.normal_(0.0, variance2)
-                # m.weight.data.normal_(0.9, 0.5)
-                # define threshold
                 m.threshold = 1
 
     def forward(self, inputdata, steps=100, l=1):
-        # out1_temp = []
-        # out2_temp = []
-        # outf0_temp = []
 
         global scale1, scale2, scale3, scale4, scale5, sign 
 
@@ -546,7 +445,6 @@ class CNNModel(nn.Module):
         mem_2s = torch.zeros(inputdata.size(0), 50, 7, 7, device = inputdata.device)
 
         membrane_f0 = torch.zeros(inputdata.size(0), 200, device = inputdata.device)
-        # membrane_f1 = torch.zeros(inputdata.size(0), 10, device = inputdata.device, requires_grad=True)
 
         Total_input = torch.zeros(inputdata.size(0), 1, 28, 28, device = inputdata.device)
 
@@ -567,7 +465,6 @@ class CNNModel(nn.Module):
 
         with torch.no_grad():
             for i in range(steps):
-                # Poisson input spike generation
                 rand_num = torch.rand(inputdata.size(0), inputdata.size(1), inputdata.size(2), inputdata.size(3), device = inputdata.device)
                 Poisson_d_input = (torch.abs(inputdata)/2) > rand_num
                 Poisson_d_input = torch.mul(Poisson_d_input.float(), torch.sign(inputdata))
@@ -577,30 +474,24 @@ class CNNModel(nn.Module):
                 in_layer = self.cnn1(Poisson_d_input)
                 mem_1 = mem_1 + in_layer
                 mem_1, out, IF_in_c1 = LIF_sNeuron(mem_1, self.cnn1.threshold, l, IF_in_c1)
-                # IF_in_c1 = IF_in_c1 + in_layer
                 Total_1_output = Total_1_output + out 
-                # LF_1_output, Total_1_output, out = LF_Unit(l, LF_1_output, Total_1_output, out, out1_temp, i)
 
                 # pooling Layer
                 in_layer = self.avgpool1(out)
                 mem_1s = mem_1s + in_layer
                 mem_1s, out, IF_in_p1 = Pooling_sNeuron(mem_1s, 0.75, i, IF_in_p1)
-                # IF_in_p1 = IF_in_p1 + in_layer
                 Total_p1_output = Total_p1_output + out 
 
                 # convolutional Layer
                 in_layer = self.cnn2(out)
                 mem_2 = mem_2 + in_layer
                 mem_2, out, IF_in_c2 = LIF_sNeuron(mem_2, self.cnn2.threshold, l, IF_in_c2)
-                # IF_in_c2 = IF_in_c2 + in_layer
                 Total_2_output = Total_2_output + out 
-                # LF_2_output, Total_2_output, out = LF_Unit(l, LF_2_output, Total_2_output, out, out2_temp, i)
 
                 # pooling Layer
                 in_layer = self.avgpool2(out)
                 mem_2s = mem_2s + in_layer
                 mem_2s, out, IF_in_p2 = Pooling_sNeuron(mem_2s, 0.75, i, IF_in_p2)
-                # IF_in_p2 = IF_in_p2 + in_layer
                 Total_p2_output = Total_p2_output + out 
 
                 out = out.view(out.size(0), -1)
@@ -609,14 +500,13 @@ class CNNModel(nn.Module):
                 in_layer = self.fc0(out)
                 membrane_f0 = membrane_f0 + in_layer
                 membrane_f0, out, IF_in_f0 = LIF_sNeuron(membrane_f0, self.fc0.threshold, l, IF_in_f0)
-                # IF_in_f0 = IF_in_f0 + in_layer
                 Total_f0_output = Total_f0_output + out 
 
             if sign == 1:
                 scale1 = 0.6 * ave(Total_1_output, IF_in_c1) + 0.4 * scale1
-                scale2 = 0.6 * ave_p(Total_p1_output, IF_in_p1) + 0.4 * scale2
+                scale2 = 0.6 * ave(Total_p1_output, IF_in_p1) + 0.4 * scale2
                 scale3 = 0.6 * ave(Total_2_output, IF_in_c2) + 0.4 * scale3
-                scale4 = 0.6 * ave_p(Total_p2_output, IF_in_p2) + 0.4 * scale4
+                scale4 = 0.6 * ave(Total_p2_output, IF_in_p2) + 0.4 * scale4
                 scale5 = 0.6 * ave(Total_f0_output, IF_in_f0) + 0.4 * scale5
                 
 
@@ -625,60 +515,38 @@ class CNNModel(nn.Module):
             scale_3 = grad_cal(scale3, IF_in_c2)
             scale_4 = grad_cal(scale4, IF_in_p2)
             scale_5 = grad_cal(scale5, IF_in_f0)
-        # constract new compute graph
-        # Total_f0_output = Total_f0_output.detach_()
-        # Total_p2_output = Total_p2_output.detach_()
-        # Total_2_output = Total_2_output.detach_()
-        # Total_p1_output = Total_p1_output.detach_()
-        # Total_1_output = Total_1_output.detach_()
 
-        # Total_f0_output.requires_grad = True
-        # Total_p2_output.requires_grad = True
-        # Total_2_output.requires_grad = True
-        # Total_p1_output.requires_grad = True
-        # Total_1_output.requires_grad = True
         with torch.enable_grad():
             cnn1_in = self.cnn1(Total_input.detach())
             tem =  Total_1_output.detach()
-            # scale_ = grad_cal(tem, IF_in_c1.detach())
             out = torch.mul(cnn1_in,scale_1)
             Total_1_output = out - out.detach() + tem
 
 
             pool1_in = self.avgpool1(Total_1_output)
             tem = Total_p1_output.detach()
-            # scale_ = grad_cal(tem, IF_in_p1)
             out = torch.mul(pool1_in,scale_2)
             Total_p1_output = out - out.detach() + tem 
 
             cnn2_in = self.cnn2(Total_p1_output)
             tem = Total_2_output.detach()
-            # scale_ = grad_cal(tem, IF_in_c2)
             out = torch.mul(cnn2_in, scale_3)
             Total_2_output = out - out.detach() + tem
 
             pool2_in = self.avgpool2(Total_2_output)
             tem = Total_p2_output.detach()
-            # scale_ = grad_cal(tem, IF_in_p2)
             out = torch.mul(pool2_in, scale_4)
             Total_p2_output = out - out.detach() + tem
 
-            fc0_in = self.fc0(Total_p2_output.view(Total_p2_output.size(0),-1)) # if have the problem of transpose, change the shape at the code here
+            fc0_in = self.fc0(Total_p2_output.view(Total_p2_output.size(0),-1)) 
             tem = Total_f0_output.detach()
-            # scale_ = grad_cal(tem, IF_in_f0)
             out = torch.mul(fc0_in, scale_5)
             Total_f0_output = out - out.detach() + tem
             
             fc1_in = self.fc1(Total_f0_output)
 
-            # LF_f0_output, Total_f0_output, out = LF_Unit(l, LF_f0_output, Total_f0_output, out, outf0_temp, i)
-
-            # membrane_f1 = membrane_f1 + self.fc1(out)
-            # membrane_f1 = l * membrane_f1.detach() + membrane_f1 - membrane_f1.detach()
 
         return fc1_in/self.fc1.threshold/steps
-        # return fc1_in/self.fc1.threshold/steps,Total_1_output,IF_in_c1,Total_p1_output,IF_in_p1,Total_2_output, IF_in_c2,Total_p2_output,IF_in_p2,Total_f0_output, IF_in_f0,cnn1_in,pool1_in,cnn2_in,pool2_in,fc0_in
-
 
     def tst(self, input, steps=100, l=1):
         mem_1 = torch.zeros(input.size(0), 20, 28, 28, device = input.device)
@@ -718,7 +586,6 @@ class CNNModel(nn.Module):
             membrane_f0, out = LIF_sNeuron1(membrane_f0, self.fc0.threshold, l, i)
 
             membrane_f1 = membrane_f1 + self.fc1(out)
-            # membrane_f1 = l * membrane_f1.detach() + membrane_f1 - membrane_f1.detach()
 
         return membrane_f1 / self.fc1.threshold / steps
 
