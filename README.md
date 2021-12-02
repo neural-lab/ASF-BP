@@ -1,6 +1,6 @@
 # ASF-BP
 
-The repo contains the code associated with the SNN training method ASF-BP. The code has been tested with Pytorch 1.1.0 abd Python 3.7.4.
+The repo contains the code associated with the SNN training method ASF-BP. The code has been tested with Pytorch 1.1.0 and Python 3.7.4.
 
 ## Testing and Training 
 To train a new model from scratch, the basic syntax is like: ```python vgg7.py```
